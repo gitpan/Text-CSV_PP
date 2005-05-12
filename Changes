@@ -1,0 +1,6 @@
+Revision history for Perl extension Text::CSV_PP.
+
+1.00  Thu May 12 12:52:47 2005
+	- original version; created by h2xs 1.22 with options
+		-AX -n Text::CSV_PP
+

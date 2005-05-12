@@ -1,0 +1,111 @@
+Text::CSV_PP version 1.00
+========================
+
+comma-separated values manipulation routines (PP version)
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+DEPENDENCIES
+
+ Test::More
+
+SYNOPSIS
+     use Text::CSV_PP;
+ 
+     $csv = Text::CSV_PP->new();           # create a new object
+     # If you want to handle non-ascii char.
+     $csv = Text::CSV_PP->new({binary => 1});
+ 
+     $status = $csv->combine(@columns);    # combine columns into a string
+     $line   = $csv->string();             # get the combined string
+ 
+     $status  = $csv->parse($line);        # parse a CSV string into fields
+     @columns = $csv->fields();            # get the parsed fields
+ 
+     $status = $csv->status();             # get the most recent status
+ 
+     $status = $csv->print($io, $columns); # Write an array of fields immediately
+                                           # to a file $io (ex. IO::File object)
+ 
+     $columns = $csv->getline($io);        # Read a line from file $io, parse it
+                                           # and return an array ref of fields
+ 
+     $csv->types(\@array);                 # Set column types
+
+DESCRIPTION
+    Text::CSV_PP is a Pure Perl module which has almost same functions of
+    Text::CSV_XS. Text::CSV_XS is an useful module which provides facilities
+    for the composition and decomposition of comma-separated values.
+
+METHODS
+
+    See pod documentation.
+
+SPEED
+    Of course Text::CSV_PP is much more slow than CSV_XS. Here is a
+    benchmark test in Text-CSV_XS-0.23. (with Pentium4 CPU 1.6GHz Mem 256M
+    Windows2000 + ActivePerl)
+
+     TEXT::CSV_PP
+     Testing row creation speed ...
+     10000 rows created in 0.9 cpu+sys seconds (10857 per sec)
+ 
+     Testing row parsing speed ...
+     10000 rows parsed in 1.2 cpu+sys seconds (8250 per sec)
+ 
+     TEXT::CSV_XS
+     Testing row creation speed ...
+     10000 rows created in 0.3 cpu+sys seconds (37037 per sec)
+ 
+     Testing row parsing speed ...
+     10000 rows parsed in 0.6 cpu+sys seconds (17211 per sec)
+
+CAVEATS
+    Below description is entirely from Text::CSV_XS's pod documentation.
+
+    This module is based upon a working definition of CSV format which may
+    not be the most general.
+
+    1   Allowable characters within a CSV field include 0x09 (tab) and the
+        inclusive range of 0x20 (space) through 0x7E (tilde). In binary mode
+        all characters are accepted, at least in quoted fields:
+
+    2   A field within CSV may be surrounded by double-quotes. (The quote
+        char)
+
+    3   A field within CSV must be surrounded by double-quotes to contain a
+        comma. (The separator char)
+
+    4   A field within CSV must be surrounded by double-quotes to contain an
+        embedded double-quote, represented by a pair of consecutive
+        double-quotes. In binary mode you may additionally use the sequence
+        ""0" for representation of a NUL byte.
+
+    5   A CSV string may be terminated by 0x0A (line feed) or by 0x0D,0x0A
+        (carriage return, line feed).
+
+AUTHOR
+        Makamaka Hannyaharamitu, <makamaka[at]cpan.org>
+
+        Text::CSV_XS was written <joe[at]ispsoft.de>.
+
+        Text::CSV was written <alan[at]mfgrtl.com>.
+
+COPYRIGHT AND LICENSE
+        Copyright 2005 by Makamaka Hannyaharamitu
+
+        This library is free software; you can redistribute it and/or modify
+        it under the same terms as Perl itself.
+
+SEE ALSO
+        Text::CSV_XS, Text::CSV
+
+        I got many regexp bases from http://www.din.or.jp/~ohzaki/perl.htm
+
