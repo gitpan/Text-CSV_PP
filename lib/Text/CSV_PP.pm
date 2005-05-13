@@ -11,7 +11,7 @@ use strict;
 use vars qw($VERSION);
 use Carp;
 
-$VERSION = '1.00';
+$VERSION = '1.01';
 
 sub PV () { 0 }
 sub IV () { 1 }
@@ -349,9 +349,10 @@ Text::CSV_PP - comma-separated values manipulation routines (PP version)
 
 =head1 DESCRIPTION
 
-Text::CSV_PP is a Pure Perl module which has almost same functions
-of L<Text::CSV_XS>. Text::CSV_XS is an useful module which provides
-facilities for the composition and decomposition of comma-separated values.
+Text::CSV_PP has almost same functions of L<Text::CSV_XS> which 
+provides facilities for the composition and decomposition of
+comma-separated values. As its name suggests, L<Text::CSV_XS>
+is a XS module and Text::CSV_PP is a Puer Perl one.
 
 =head1 METHODS
 
@@ -367,7 +368,7 @@ Returns the current module version.
 
 Returns a new instance of Text::CSV_PP. The objects
 attributes are described by the (optional) hash ref C<\%attr>.
-Currently the following attributes are same as Text::CSV_XS:
+Currently the following attributes are same as L<Text::CSV_XS>:
 
 =over 8
 
@@ -416,11 +417,11 @@ to handle in external applications.
 
 To sum it up,
 
- $csv = Text::CSV_XS->new();
+ $csv = Text::CSV_PP->new();
 
 is equivalent to
 
- $csv = Text::CSV_XS->new({
+ $csv = Text::CSV_PP->new({
      'quote_char'  => '"',
      'escape_char' => '"',
      'sep_char'    => ',',
@@ -496,10 +497,10 @@ This method is used to force that columns are of a given type. For
 example, if you have an integer column, two double columns and a
 string column, then you might do a
 
- $csv->types([Text::CSV_XS::IV(),
-              Text::CSV_XS::NV(),
-              Text::CSV_XS::NV(),
-              Text::CSV_XS::PV()]);
+ $csv->types([Text::CSV_PP::IV(),
+              Text::CSV_PP::NV(),
+              Text::CSV_PP::NV(),
+              Text::CSV_PP::PV()]);
 
 Column types are used only for decoding columns, in other words
 by the I<parse()> and I<getline()> methods.
@@ -611,6 +612,6 @@ it under the same terms as Perl itself.
 
 L<Text::CSV_XS>, L<Text::CSV>
 
-I got many regexp bases from http://www.din.or.jp/~ohzaki/perl.htm
+I got many regexp bases from L<http://www.din.or.jp/~ohzaki/perl.htm>
 
 =cut
