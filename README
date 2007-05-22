@@ -1,4 +1,4 @@
-Text::CSV_PP version 1.01
+Text::CSV_PP version 1.02
 ========================
 
 comma-separated values manipulation routines (PP version)
@@ -46,27 +46,232 @@ DESCRIPTION
     Text::CSV_PP is a Puer Perl one.
 
 METHODS
+    Almost descriptions are from Text::CSV_XS (0.23, 0.26)'s pod
+    documentation.
 
-    See pod documentation.
+    version()
+        Returns the current module version.
+
+    new(\%attr)
+        Returns a new instance of Text::CSV_PP. The objects attributes are
+        described by the (optional) hash ref "\%attr". Currently the
+        following attributes are same as Text::CSV_XS:
+
+        quote_char
+                The char used for quoting fields containing blanks, by
+                default the double quote character ("""). A value of undef
+                suppresses quote chars.
+
+        eol     An end-of-line string to add to rows, usually "undef"
+                (nothing, default), "\012" (Line Feed) or "\015\012"
+                (Carriage Return, Line Feed)
+
+        escape_char
+                The char used for escaping certain characters inside quoted
+                fields, by default the same character. (""")
+
+        sep_char
+                The char used for separating fields, by default a comme.
+                (",")
+
+        binary  If this attribute is TRUE, you may use binary characters in
+                quoted fields, including line feeds, carriage returns and
+                NUL bytes. (The latter must be escaped as ""0".) By default
+                this feature is off.
+
+        types   A set of column types; this attribute is immediately passed
+                to the *types* method below. You must not set this attribute
+                otherwise, except for using the *types* method. For details
+                see the description of the *types* method below.
+
+        always_quote
+                By default the generated fields are quoted only, if they
+                need to, for example, if they contain the separator. If you
+                set this attribute to a TRUE value, then all fields will be
+                quoted. This is typically easier to handle in external
+                applications.
+
+        keep_meta_info
+                By default, the parsing of input lines is as simple and fast
+                as possible. However, some parsing information - like
+                quotation of the original field - is lost in that process.
+                Set this flag to true to be able to retrieve that
+                information after parsing with the methods "meta_info ()",
+                "is_quoted ()", and "is_binary ()" described below. Default
+                is false.
+
+        To sum it up,
+
+         $csv = Text::CSV_PP->new();
+
+        is equivalent to
+
+         $csv = Text::CSV_PP->new({
+             'quote_char'     => '"',
+             'escape_char'    => '"',
+             'sep_char'       => ',',
+             'eol'            => '',
+             'always_quote'   => 0,
+             'binary'         => 0,
+             'keep_meta_info' => 0,
+         });
+
+        For all of the above mentioned flags, there is an accessor method
+        available where you can inquire for the current value, or change the
+        value
+
+    combine
+         $status = $csv->combine(@columns);
+
+        This object function constructs a CSV string from the arguments,
+        returning success or failure. Upon success, "string()" can be called
+        to retrieve the resultant CSV string. Upon failure, the value
+        returned by "string()" is undefined and "error_input()" can be
+        called to retrieve an invalid argument.
+
+    print
+         $status = $csv->print($io, $columns);
+
+        Similar to combine, but it expects an array ref as input (not an
+        array!) and the resulting string is immediately written to the *$io*
+        object, typically an IO handle or any other object that offers a
+        *print* method. Note, this implies that the following is wrong:
+
+         open(FILE, ">whatever");
+         $status = $csv->print(\*FILE, $columns);
+
+        The glob "\*FILE" is not an object, thus it doesn't have a print
+        method. The solution is to use an IO::File object or to hide the
+        glob behind an IO::Wrap object. See IO::File(3) and IO::Wrap(3) for
+        details.
+
+    string
+         $line = $csv->string();
+
+        This object function returns the input to "parse()" or the resultant
+        CSV string of "combine()", whichever was called more recently.
+
+    parse
+         $status = $csv->parse($line);
+
+        This object function decomposes a CSV string into fields, returning
+        success or failure. Failure can result from a lack of argument or
+        the given CSV string is improperly formatted. Upon success,
+        "fields()" can be called to retrieve the decomposed fields . Upon
+        failure, the value returned by "fields()" is undefined and
+        "error_input()" can be called to retrieve the invalid argument.
+
+        You may use the *types()* method for setting column types. See the
+        description below.
+
+    getline
+         $columns = $csv->getline($io);
+
+        This is the counterpart to print, like parse is the counterpart to
+        combine: It reads a row from the IO object $io using $io->getline()
+        and parses this row into an array ref. This array ref is returned by
+        the function or undef for failure.
+
+        The *$csv->string()*, *$csv->fields()* and *$csv->status()* methods
+        are meaningless, again.
+
+    types
+         $csv->types(\@tref);
+
+        This method is used to force that columns are of a given type. For
+        example, if you have an integer column, two double columns and a
+        string column, then you might do a
+
+         $csv->types([Text::CSV_PP::IV(),
+                      Text::CSV_PP::NV(),
+                      Text::CSV_PP::NV(),
+                      Text::CSV_PP::PV()]);
+
+        Column types are used only for decoding columns, in other words by
+        the *parse()* and *getline()* methods.
+
+        You can unset column types by doing a
+
+         $csv->types(undef);
+
+        or fetch the current type settings with
+
+         $types = $csv->types();
+
+    fields
+         @columns = $csv->fields();
+
+        This object function returns the input to "combine()" or the
+        resultant decomposed fields of "parse()", whichever was called more
+        recently.
+
+    meta_info
+         @flags = $csv->meta_info();
+
+        This object function returns the flags of the resultant decomposed
+        fields of "parse ()", whichever was called more recently.
+
+        For each field, a meta_info field will hold flags that tell
+        something about the field returned by the "fields ()" method. The
+        flags are bitwise-or'd like:
+
+        0x0001
+            The field was quoted.
+
+        0x0002
+            The field was binary.
+
+        See the "is_*** ()" methods below.
+
+    is_quoted
+          my $quoted = $csv->is_quoted ($column_idx);
+
+        Where $column_idx is the (zero-based) index of the column in the
+        last result of "parse ()".
+
+        This returns a true value if the data in the indicated column was
+        enclosed in "quote_char" quotes. This might be important for data
+        where ",20070108," is to be treated as a numeric value, and where
+        ","20070108"," is explicitly marked as character string data.
+
+    is_binary
+          my $binary = $csv->is_binary ($column_idx);
+
+        Where $column_idx is the (zero-based) index of the column in the
+        last result of "parse ()".
+
+        This returns a true value if the data in the indicated column
+        contained any byte out of the range [\x09\x20-\x7E]
+
+    status
+         $status = $csv->status();
+
+        This object function returns success (or failure) of "combine()" or
+        "parse()", whichever was called more recently.
+
+    error_input
+         $bad_argument = $csv->error_input();
+
+        This object function returns the erroneous argument (if it exists)
+        of "combine()" or "parse()", whichever was called more recently.
 
 SPEED
     Of course Text::CSV_PP is much more slow than CSV_XS. Here is a
-    benchmark test in Text-CSV_XS-0.23. (with Pentium4 CPU 1.6GHz Mem 256M
-    Windows2000 + ActivePerl)
+    benchmark test in Text-CSV_XS-0.26.
 
-     TEXT::CSV_PP
+     Text::CSV_PP (1.02)
      Testing row creation speed ...
-     10000 rows created in 0.9 cpu+sys seconds (10857 per sec)
- 
+     100000 rows created in  5.88 cpu+sys seconds (   17021 per sec)
+
      Testing row parsing speed ...
-     10000 rows parsed in 1.2 cpu+sys seconds (8250 per sec)
- 
-     TEXT::CSV_XS
+     100000 rows parsed  in  8.17 cpu+sys seconds (   12236 per sec)
+
+     Text::CSV_XS (0.26)
      Testing row creation speed ...
-     10000 rows created in 0.3 cpu+sys seconds (37037 per sec)
- 
+     100000 rows created in  1.69 cpu+sys seconds (   59241 per sec)
+
      Testing row parsing speed ...
-     10000 rows parsed in 0.6 cpu+sys seconds (17211 per sec)
+     100000 rows parsed  in  2.61 cpu+sys seconds (   38328 per sec)
 
 CAVEATS
     Below description is entirely from Text::CSV_XS's pod documentation.
@@ -95,12 +300,14 @@ CAVEATS
 AUTHOR
         Makamaka Hannyaharamitu, <makamaka[at]cpan.org>
 
-        Text::CSV_XS was written <joe[at]ispsoft.de>.
+        Text::CSV_XS was written by <joe[at]ispsoft.de> and maintained by
+        <h.m.brand[at]xs4all.nl>.
 
-        Text::CSV was written <alan[at]mfgrtl.com>.
+        Text::CSV was written by <alan[at]mfgrtl.com>.
 
 COPYRIGHT AND LICENSE
-        Copyright 2005 by Makamaka Hannyaharamitu
+        Copyright 2005-2007 by Makamaka Hannyaharamitu,
+        <makamaka[at]cpan.org>
 
         This library is free software; you can redistribute it and/or modify
         it under the same terms as Perl itself.
@@ -108,5 +315,5 @@ COPYRIGHT AND LICENSE
 SEE ALSO
         Text::CSV_XS, Text::CSV
 
-        I got many regexp bases from http://www.din.or.jp/~ohzaki/perl.htm
+        I got many regexp bases from <http://www.din.or.jp/~ohzaki/perl.htm>
 

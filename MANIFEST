@@ -3,9 +3,13 @@ lib/Text/CSV_PP.pm
 Makefile.PL
 MANIFEST
 README
-t/01-use.t
-t/02-base.t
-t/03-file.t
-t/04-misc.t
-t/05-samples.t
-t/06-types.t
+t/10_base.t		Base tests (combine and parse only)
+t/12_acc.t		Accessor methods
+t/15_flags.t		Basic flag tests
+t/20_file.t		IO tests (print and getline)
+t/30_types.t		Tests for the "types" attribute.
+t/40_misc.t		Binary mode tests
+t/50_utf8.t		Unicode stress tests
+t/55_combi.t		Different CSV character combinations
+t/60_samples.t		Miscellaneous problems from the modules history.
+META.yml                                 Module meta-data (added by MakeMaker)

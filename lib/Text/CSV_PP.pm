@@ -9,313 +9,339 @@ require 5.005;
 
 use strict;
 use vars qw($VERSION);
-use Carp;
+use Carp ();
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 sub PV () { 0 }
 sub IV () { 1 }
 sub NV () { 2 }
+
+sub IS_QUOTED () { 0x0001; }
+sub IS_BINARY () { 0x0002; }
 
 ################################################################################
 # version
 #  See Text::CSV_XS
 ################################################################################
 sub version {
-	return $VERSION;
+    return $VERSION;
 }
-
 ################################################################################
 # new
 #  See Text::CSV_XS
 ################################################################################
 sub new {
-	my $proto = shift;
-	my $attr  = shift || {};
-	my $class = ref($proto) || $proto;
-	my $self  = {
-		quote_char  => '"',
-		escape_char => '"',
-		sep_char    => ',',
-		eol         => '' ,
-		%$attr,
-	};
+    my $proto = shift;
+    my $attr  = shift || {};
+    my $class = ref($proto) || $proto;
+    my $self  = {
+        quote_char      => '"',
+        escape_char     => '"',
+        sep_char        => ',',
+        eol             => '' ,
+        always_quote    => 0,
+        binary          => 0,
+        keep_meta_info  => 0,
+        %$attr,
+    };
 
-	$self->{_STATUS} = undef;
-	$self->{_STRING} = undef;
-	$self->{_FIELDS} = undef;
-	$self->{_ERROR_INPUT} = undef;
+    $self->{_STATUS} = undef;
+    $self->{_STRING} = undef;
+    $self->{_FIELDS} = undef;
+    $self->{_ERROR_INPUT} = undef;
 
-	bless $self, $class;
+    $self->{_META_INFO} = undef;
 
-	if(exists($self->{types})) {
-		$self->types($self->{types});
-	}
+    bless $self, $class;
 
-	return $self;
+    if(exists($self->{types})) {
+        $self->types($self->{types});
+    }
+
+    return $self;
 }
-
 ################################################################################
 # status
 #  See Text::CSV_XS
 ################################################################################
 sub status {
-	my $self = shift;
-	return $self->{_STATUS};
+    $_[0]->{_STATUS};
 }
-
 ################################################################################
 # error_input
 #  See Text::CSV_XS
 ################################################################################
 sub error_input {
-	my $self = shift;
-	return $self->{_ERROR_INPUT};
+    $_[0]->{_ERROR_INPUT};
 }
-
 ################################################################################
 # string
 #  See Text::CSV_XS
 ################################################################################
 sub string {
-	my $self = shift;
-	return $self->{_STRING};
+    $_[0]->{_STRING};
 }
-
 ################################################################################
 # fields
 #  See Text::CSV_XS
 ################################################################################
 sub fields {
-	my $self = shift;
-	if (ref($self->{_FIELDS})) {
-		return @{$self->{_FIELDS}};
-	}
-	return undef;
+    ref($_[0]->{_FIELDS}) ?  @{$_[0]->{_FIELDS}} : undef;
 }
-
 ################################################################################
 # combine
 #  See Text::CSV_XS
 ################################################################################
 sub combine {
-	my $self = shift;
-	my @part = @_;
-	my $io;
+    my ($self, @part) = @_;
+    my $io;
 
-	# at least one argument was given for "combining"...
-	return $self->{_STATUS} = 0 unless(@part);
+    # at least one argument was given for "combining"...
+    return $self->{_STATUS} = 0 unless(@part);
 
-	if(UNIVERSAL::can($part[0],'print')){ # IO like object
-		if(ref($part[1]) ne 'ARRAY'){
-			croak("fields is not an array ref");
-		}
-		$io   = shift @part;
-		@part = @{ shift @part };
-	}
+    if(UNIVERSAL::can($part[0],'print')){ # IO like object
+        if(ref($part[1]) ne 'ARRAY'){
+            Carp::croak("fields is not an array ref");
+        }
+        $io   = shift @part;
+        @part = @{ shift @part };
+    }
 
-	$self->{_FIELDS}      = \@part;
-	$self->{_ERROR_INPUT} = undef;
-	$self->{_STRING}      = '';
-	$self->{_STATUS}      = 0;
+    $self->{_FIELDS}      = \@part;
+    $self->{_ERROR_INPUT} = undef;
+    $self->{_STRING}      = '';
+    $self->{_STATUS}      = 0;
 
-	my $always_quote = $self->{always_quote};
-	my $binary       = $self->{binary};
-	my $quot         = $self->{quote_char};
-	my $sep          = $self->{sep_char};
-	my $esc          = $self->{escape_char};
+    my ($always_quote, $binary, $quot, $sep, $esc)
+            = @{$self}{qw/always_quote binary quote_char sep_char escape_char/};
 
-	if(!defined $quot){ $quot = ''; }
+    if(!defined $quot){ $quot = ''; }
 
-	my $re_esc = $self->{_re_escape}->{$quot}->{$esc} ||= qr/(\Q$quot\E|\Q$esc\E)/;
-	my $re_sp  = $self->{_re_sp}->{$sep}              ||= qr/[\s\Q$sep\E]/;
+    return if ($sep eq $esc or $sep eq $quot);
 
-	my $must_be_quoted;
-	for my $column (@part) {
+    my $re_esc = $self->{_re_comb_escape}->{$quot}->{$esc} ||= qr/(\Q$quot\E|\Q$esc\E)/;
+    my $re_sp  = $self->{_re_comb_sp}->{$sep}              ||= qr/[\s\Q$sep\E]/;
 
-		if (!$binary and $column =~ /[^\x09\x20-\x7E]/) {
-			# an argument contained an invalid character...
-			$self->{_ERROR_INPUT} = $column;
-			return $self->{_STATUS};
-		}
+    my $must_be_quoted;
+    for my $column (@part) {
 
-		$must_be_quoted = 0;
+        unless (defined $column) {
+            $column = '';
+            next;
+        }
 
-		if($quot ne '' and $column =~ s/$re_esc/$esc$1/g){
-			$must_be_quoted++;
-		}
-		if($column =~ /$re_sp/){
-			$must_be_quoted++;
-		}
-		if($binary){
-			$must_be_quoted++ if($column =~ s/\0/${esc}0/g);
-		}
+        if (!$binary and $column =~ /[^\x09\x20-\x7E]/) {
+            # an argument contained an invalid character...
+            $self->{_ERROR_INPUT} = $column;
+            return $self->{_STATUS};
+        }
 
-		if($always_quote or $must_be_quoted){
-			$column = $quot . $column . $quot;
-		}
-	}
+        $must_be_quoted = 0;
 
-	if($io){
-		return $io->print(join($sep,@part) . $self->{eol});
-	}
+        if($quot ne '' and $column =~ s/$re_esc/$esc$1/g){
+            $must_be_quoted++;
+        }
+        if($column =~ /$re_sp/){
+            $must_be_quoted++;
+        }
 
-	$self->{_STRING} = join($sep,@part) . $self->{eol};
-	$self->{_STATUS} = 1;
+        if($binary){
+            $must_be_quoted++ if($column =~ s/\0/${esc}0/g);
+        }
 
-	return $self->{_STATUS};
+        if($always_quote or $must_be_quoted){
+            $column = $quot . $column . $quot;
+        }
+    }
+
+    if($io){
+        return $io->print(join($sep,@part) . $self->{eol});
+    }
+
+    $self->{_STRING} = join($sep,@part) . $self->{eol};
+    $self->{_STATUS} = 1;
+
+    return $self->{_STATUS};
 }
-
 ################################################################################
 # parse
 #  See Text::CSV_XS
 ################################################################################
 sub parse {
-	my $self = shift;
-	my $line = shift;
+    my ($self, $line) = @_;
 
-	$self->{_STRING}      = $line;
-	$self->{_FIELDS}      = undef;
-	$self->{_STATUS}      = 0;
-	$self->{_ERROR_INPUT} = $self->{_STRING};
+    @{$self}{qw/_STRING _FIELDS _STATUS _ERROR_INPUT/} = ($line, undef, 0, $line);
 
-	if(!defined $line){
-		return $self->{_STATUS};
-	}
+    return 0 if(!defined $line);
 
-	my $binary = $self->{binary};
-	my $quot   = $self->{quote_char};
-	my $sep    = $self->{sep_char};
-	my $esc    = $self->{escape_char};
-	my $types  = $self->types;
+    my ($binary, $quot, $sep, $esc, $types, $keep_meta_info)
+         = @{$self}{qw/binary quote_char sep_char escape_char types keep_meta_info/};
 
-	$line =~ s/(?:\x0D\x0A|[\x0D\x0A])?$/$sep/;
+    return if ($sep eq $esc or $sep eq $quot);
 
-	my $re_split = $self->{_re_split}->{$quot}->{$esc}->{$sep}
-	   ||= qr/(\Q$quot\E[^\Q$quot$esc\E]*(?:\Q$esc\E[\Q$quot$esc\E0][^\Q$quot$esc\E]*)*\Q$quot\E|[^\Q$sep\E]*)\Q$sep\E/s;
-	my $re_quoted       = $self->{_re_quoted}->{$quot}               ||= qr/^$quot(.*)$quot$/s;
-	my $re_in_quot_esp1 = $self->{_re_in_quot_esp1}->{$esc}          ||= qr/\Q$esc\E(.)/;
-	my $re_in_quot_esp2 = $self->{_re_in_quot_esp2}->{$quot}->{$esc} ||= qr/[\Q$quot$esc\E]/;
-	my $re_conv_esc     = $self->{_re_conv_esc}->{$quot}->{$esc}     ||= qr/\Q$esc\E(\Q$quot\E|\Q$esc\E)/;
-	my $re_conv_null    = $self->{_re_conv_null}->{$esc}             ||= qr/\Q$esc\E0/;
-	my $re_quot_char    = $self->{_re_quot_char}->{$quot}            ||= qr/\Q$quot\E/;
+    my $meta_flag = [] if ($keep_meta_info);
 
-	my $palatable = 1;
-	my @part      = ();
+    $line =~ s/(?:\x0D\x0A|[\x0D\x0A])?$/$sep/;
 
-	my $i = 0;
-	for my $col ($line =~ /$re_split/g){
+    my $re_split = $self->{_re_split}->{$quot}->{$esc}->{$sep}
+       ||= qr/(\Q$quot\E[^\Q$quot$esc\E]*(?:\Q$esc\E[\Q$quot$esc\E0][^\Q$quot$esc\E]*)*\Q$quot\E|[^\Q$sep\E]*)\Q$sep\E/s;
+    my $re_quoted       = $self->{_re_quoted}->{$quot}               ||= qr/^\Q$quot\E(.*)\Q$quot\E$/s;
+    my $re_in_quot_esp1 = $self->{_re_in_quot_esp1}->{$esc}          ||= qr/\Q$esc\E(.)/;
+    my $re_in_quot_esp2 = $self->{_re_in_quot_esp2}->{$quot}->{$esc} ||= qr/[\Q$quot$esc\E]/;
+    my $re_quot_char    = $self->{_re_quot_char}->{$quot}            ||= qr/\Q$quot\E/;
+    my $re_esc          = $self->{_re_esc}->{$quot}->{$esc}          ||= qr/\Q$esc\E(\Q$quot\E|\Q$esc\E|0)/;
 
-		if(!$binary and $col =~ /[^\x09\x20-\x7E]/){
-			$palatable = 0;
-			last;
-		}
+    my $palatable = 1;
+    my @part      = ();
 
-		if($col =~ $re_quoted){
-			$col = $1;
-			if(!$binary and $col =~ $re_in_quot_esp1){
-				my $str = $1;
-				if($str !~ $re_in_quot_esp2){
-					$palatable = 0;
-					last;
-				}
-			}
-			$col =~ s/$re_conv_esc/$1/g;
-			$col =~ s/$re_conv_null/\0/g;
+    my $i = 0;
+    my $flag;
 
-			if($types and $types->[$i]){ # IV pr NV
-				_check_type(\$col);
-			}
-		}
-		elsif(!$binary and $col =~ $re_quot_char){
-			$palatable = 0;
-			last;
-		}
-		elsif($types and $types->[$i]){ # IV pr NV
-			_check_type(\$col);
-		}
-		push @part,$col;
-		$i++;
-	}
+    for my $col ($line =~ /$re_split/g){
 
-	if($palatable and ! @part){
-		$palatable = 0;
-	}
+        if(!$binary and $col =~ /[^\x09\x20-\x7E]/){
+            $palatable = 0;
+            last;
+        }
 
-	if($palatable){
-		$self->{_ERROR_INPUT} = undef;
-		$self->{_FIELDS}      = \@part;
-	}
+        if ($keep_meta_info) {
+            $flag = 0x0000;
+            $flag |= IS_BINARY if ($col =~ /[^\x09\x20-\x7E]/);
+        }
 
-	return $self->{_STATUS} = $palatable;
+        if($col =~ $re_quoted){
+            $flag |= IS_QUOTED if ($keep_meta_info);
+            $col = $1;
+            if(!$binary and $col =~ $re_in_quot_esp1){
+                my $str = $1;
+                if($str !~ $re_in_quot_esp2){
+                    $palatable = 0;
+                    last;
+                }
+            }
+
+            $col =~ s{$re_esc}{$1 eq '0' ? "\0" : $1}eg;
+
+            if($types and $types->[$i]){ # IV or NV
+                _check_type(\$col);
+            }
+        }
+        elsif(!$binary and $col =~ $re_quot_char){
+            $palatable = 0;
+            last;
+        }
+        elsif($types and $types->[$i]){ # IV or NV
+            _check_type(\$col);
+        }
+        push @part,$col;
+
+        push @{$meta_flag}, $flag if ($keep_meta_info);
+
+        $i++;
+    }
+
+    if($palatable and ! @part){
+        $palatable = 0;
+    }
+
+    if($palatable){
+        $self->{_ERROR_INPUT} = undef;
+        $self->{_FIELDS}      = \@part;
+    }
+
+    $self->{_META_INFO} = $keep_meta_info ? $meta_flag : [];
+
+    return $self->{_STATUS} = $palatable;
 }
-
 ################################################################################
 # print
 #  See Text::CSV_XS
 ################################################################################
-
 sub print {
-	my ($self,$io,$cols) = @_;
-	$self->combine($io,$cols);
+    my ($self,$io,$cols) = @_;
+    $self->combine($io,$cols);
 }
-
 ################################################################################
 # getline
 #  See Text::CSV_XS
 ################################################################################
-
 sub getline {
-	my ($self,$io) = @_;
-	$self->parse($io->getline()) or return;
-	[ $self->fields() ];
+    my ($self,$io) = @_;
+    $self->parse($io->getline()) or return;
+    [ $self->fields() ];
 }
-
 ################################################################################
 # type
 #  See Text::CSV_XS
 ################################################################################
-
 sub types {
-	my $self = shift;
+    my $self = shift;
 
-	if (@_) {
-		if (my $types = shift) {
-			$self->{'_types'} = join("", map{ chr($_) } @$types);
-			$self->{'types'} = $types;
-		}
-		else {
-			delete $self->{'types'};
-			delete $self->{'_types'};
-			undef;
-		}
-	}
-	else {
-		$self->{'types'};
-	}
+    if (@_) {
+        if (my $types = shift) {
+            $self->{'_types'} = join("", map{ chr($_) } @$types);
+            $self->{'types'} = $types;
+        }
+        else {
+            delete $self->{'types'};
+            delete $self->{'_types'};
+            undef;
+        }
+    }
+    else {
+        $self->{'types'};
+    }
 }
-
 ################################################################################
 # _check_type
 #  take an arg as scalar referrence.
 #  if not numeric, make the value 0. otherwise INTEGERized.
 ################################################################################
-
 sub _check_type {
-	my $col_ref = shift;
-	unless($$col_ref =~ /^[+-]?(?=\d|\.\d)\d*(\.\d*)?([Ee]([+-]?\d+))?$/){
-		warn sprintf("Argument \"%s\" isn't numeric in subroutine entry",$$col_ref);
-		$$col_ref = 0;
-	}
-	else{
-		$$col_ref = sprintf("%d",$$col_ref);
-	}
+    my $col_ref = shift;
+    unless($$col_ref =~ /^[+-]?(?=\d|\.\d)\d*(\.\d*)?([Ee]([+-]?\d+))?$/){
+        Carp::carp sprintf("Argument \"%s\" isn't numeric in subroutine entry",$$col_ref);
+        $$col_ref = 0;
+    }
+    else{
+        $$col_ref = sprintf("%d",$$col_ref);
+    }
+}
+################################################################################
+
+sub meta_info {
+    $_[0]->{_META_INFO} ? @{ $_[0]->{_META_INFO} } : undef;
+}
+
+sub is_quoted {
+    return unless (defined $_[0]->{_META_INFO});
+    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_META_INFO} } );
+
+    $_[0]->{_META_INFO}->[$_[1]] & IS_QUOTED ? 1 : 0;
+}
+
+sub is_binary {
+    return unless (defined $_[0]->{_META_INFO});
+    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_META_INFO} } );
+    $_[0]->{_META_INFO}->[$_[1]] & IS_BINARY ? 1 : 0;
+}
+
+BEGIN {
+    for my $method (qw/quote_char escape_char sep_char eol always_quote binary keep_meta_info/) {
+        eval qq|
+            sub $method {
+                \$_[0]->{$method} = \$_[1] if (defined \$_[1]);
+                \$_[0]->{$method};
+            }
+        |;
+    }
 }
 
 ################################################################################
 1;
 __END__
-
+=pod
 
 =head1 NAME
 
@@ -356,7 +382,7 @@ is a XS module and Text::CSV_PP is a Puer Perl one.
 
 =head1 METHODS
 
-Almost descriptions are from Text::CSV_XS's pod documentation.
+Almost descriptions are from Text::CSV_XS (0.23, 0.26)'s pod documentation.
 
 =over 4
 
@@ -413,6 +439,15 @@ example, if they contain the separator. If you set this attribute to
 a TRUE value, then all fields will be quoted. This is typically easier
 to handle in external applications.
 
+=item keep_meta_info
+
+By default, the parsing of input lines is as simple and fast as
+possible. However, some parsing information - like quotation of
+the original field - is lost in that process. Set this flag to
+true to be able to retrieve that information after parsing with
+the methods C<meta_info ()>, C<is_quoted ()>, and C<is_binary ()>
+described below.  Default is false.
+
 =back
 
 To sum it up,
@@ -422,11 +457,19 @@ To sum it up,
 is equivalent to
 
  $csv = Text::CSV_PP->new({
-     'quote_char'  => '"',
-     'escape_char' => '"',
-     'sep_char'    => ',',
-     'binary'      => 0
+     'quote_char'     => '"',
+     'escape_char'    => '"',
+     'sep_char'       => ',',
+     'eol'            => '',
+     'always_quote'   => 0,
+     'binary'         => 0,
+     'keep_meta_info' => 0,
  });
+
+For all of the above mentioned flags, there is an accessor method
+available where you can inquire for the current value, or change
+the value
+
 
 =item combine
 
@@ -520,6 +563,53 @@ or fetch the current type settings with
 This object function returns the input to C<combine()> or the resultant
 decomposed fields of C<parse()>, whichever was called more recently.
 
+=item meta_info
+
+ @flags = $csv->meta_info();
+
+This object function returns the flags of the resultant decomposed
+fields of C<parse ()>, whichever was called more recently.
+
+
+For each field, a meta_info field will hold flags that tell something about
+the field returned by the C<fields ()> method. The flags are bitwise-or'd like:
+
+=over 4
+
+=item 0x0001
+
+The field was quoted.
+
+=item 0x0002
+
+The field was binary.
+
+=back
+
+See the C<is_*** ()> methods below.
+
+=item is_quoted
+
+  my $quoted = $csv->is_quoted ($column_idx);
+
+Where C<$column_idx> is the (zero-based) index of the column in the
+last result of C<parse ()>.
+
+This returns a true value if the data in the indicated column was
+enclosed in C<quote_char> quotes. This might be important for data
+where C<,20070108,> is to be treated as a numeric value, and where
+C<,"20070108",> is explicitly marked as character string data.
+
+=item is_binary
+
+  my $binary = $csv->is_binary ($column_idx);
+
+Where C<$column_idx> is the (zero-based) index of the column in the
+last result of C<parse ()>.
+
+This returns a true value if the data in the indicated column
+contained any byte out of the range [\x09\x20-\x7E]
+
 =item status
 
  $status = $csv->status();
@@ -539,23 +629,22 @@ C<combine()> or C<parse()>, whichever was called more recently.
 =head1 SPEED
 
 Of course Text::CSV_PP is much more slow than CSV_XS.
-Here is a benchmark test in Text-CSV_XS-0.23.
-(with Pentium4 CPU 1.6GHz Mem 256M Windows2000 + ActivePerl)
+Here is a benchmark test in Text-CSV_XS-0.26.
 
- TEXT::CSV_PP
+ Text::CSV_PP (1.02)
  Testing row creation speed ...
- 10000 rows created in 0.9 cpu+sys seconds (10857 per sec)
- 
+ 100000 rows created in  5.88 cpu+sys seconds (   17021 per sec)
+
  Testing row parsing speed ...
- 10000 rows parsed in 1.2 cpu+sys seconds (8250 per sec)
- 
- 
- TEXT::CSV_XS
+ 100000 rows parsed  in  8.17 cpu+sys seconds (   12236 per sec)
+
+ Text::CSV_XS (0.26)
  Testing row creation speed ...
- 10000 rows created in 0.3 cpu+sys seconds (37037 per sec)
- 
+ 100000 rows created in  1.69 cpu+sys seconds (   59241 per sec)
+
  Testing row parsing speed ...
- 10000 rows parsed in 0.6 cpu+sys seconds (17211 per sec)
+ 100000 rows parsed  in  2.61 cpu+sys seconds (   38328 per sec)
+
 
 =head1 CAVEATS
 
@@ -597,13 +686,15 @@ A CSV string may be terminated by 0x0A (line feed) or by 0x0D,0x0A
 
 Makamaka Hannyaharamitu, E<lt>makamaka[at]cpan.orgE<gt>
 
-Text::CSV_XS was written E<lt>joe[at]ispsoft.deE<gt>.
+Text::CSV_XS was written by E<lt>joe[at]ispsoft.deE<gt>
+and maintained by E<lt>h.m.brand[at]xs4all.nlE<gt>.
 
-Text::CSV was written E<lt>alan[at]mfgrtl.comE<gt>.
+Text::CSV was written by E<lt>alan[at]mfgrtl.comE<gt>.
+
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2005 by Makamaka Hannyaharamitu
+Copyright 2005-2007 by Makamaka Hannyaharamitu, E<lt>makamaka[at]cpan.orgE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 
