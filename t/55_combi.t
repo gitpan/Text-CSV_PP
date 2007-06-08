@@ -1,35 +1,15 @@
-
-# copied from Text::CSV_XS (0.26) t/55_combi.t and modified for Text::CSV_PP
+#!/usr/bin/perl
 
 use strict;
+$^W = 1;
+
 use Test::More tests => 7716;
 
 BEGIN {
     require_ok "Text::CSV_PP";
     plan skip_all => "Cannot load Text::CSV_PP" if $@;
+    require "t/util.pl";
     }
-
-sub _readable ($)
-{
-    join "", map {
-	my $cp = ord $_;
-	$cp >= 0x20 && $cp <= 0x7e
-	    ? $_
-	    : sprintf "\\x{%02x}", $cp;
-	} split m//, $_[0];
-    } # _readable
-
-sub is_binary ($$$)
-{
-    my ($str, $exp, $tst) = @_;
-    if ($str eq $exp) {
-	ok (1,		$tst);
-	}
-    else {
-	my ($hs, $he) = map { _readable $_ } $str, $exp;
-	is ($hs, $he,	$tst);
-	}
-    } # is_binary
 
 my $csv = Text::CSV_PP->new ({ binary => 1 });
 
@@ -37,7 +17,7 @@ my @attrib  = qw( quote_char escape_char sep_char );
 my @special = ('"', "'", ",", ";", "\t", "\\", "~");
 # Add undef, once we can return undef
 my @input   = ( "", 1, "1", 1.4, "1.4", " - 1,4", "' ain't it great '",
-    '"foo"! said the `bãÑ', q{the ~ in "0 \0 this l'ne is \r ; or "'"} );
+    '"foo"! said the `bär', q{the ~ in "0 \0 this l'ne is \r ; or "'"} );
 my $ninput  = scalar @input;
 my $string  = join "=", "", @input, "";
 my %fail;

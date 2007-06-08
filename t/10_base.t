@@ -1,8 +1,9 @@
-
-# copied from Text::CSV_XS (0.26) t/10_base.t and modified for Text::CSV_PP
+#!/usr/bin/perl
 
 use strict;
-use Test::More tests => 48;
+$^W = 1;	# use warnings core since 5.6
+
+use Test::More tests => 50;
 
 BEGIN {
     use_ok "Text::CSV_PP";
@@ -33,6 +34,7 @@ ok ($empty->new,					"new () based on object");
 my $csv;
 ok ($csv = Text::CSV_PP->new,				"new ()");
 is ($csv->fields, undef,				"fields () before parse ()");
+is ($csv->string, undef,				"string () undef before combine");
 
 # Important: Do not modify these tests unless you have a good
 # reason. This file ought to guarantee compatibility to Text::CSV.
@@ -84,3 +86,8 @@ ok ( $csv->status (),					"status ()");
 ok (1,							"Integers and Reals");
 ok ( $csv->combine ("", 2, 3.4, "a", "a b"),		"Mixed - combine ()");
 is ( $csv->string, ',2,3.4,a,"a b"',			"Mixed - string ()");
+
+# New from object
+ok ($csv->new (),					"\$csv->new ()");
+
+1;

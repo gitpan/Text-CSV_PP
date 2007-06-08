@@ -1,4 +1,4 @@
-Text::CSV_PP version 1.02
+Text::CSV_PP version 1.05
 ========================
 
 comma-separated values manipulation routines (PP version)
@@ -15,6 +15,7 @@ To install this module type the following:
 DEPENDENCIES
 
  Test::More
+
 
 SYNOPSIS
      use Text::CSV_PP;
@@ -46,7 +47,7 @@ DESCRIPTION
     Text::CSV_PP is a Puer Perl one.
 
 METHODS
-    Almost descriptions are from Text::CSV_XS (0.23, 0.26)'s pod
+    Almost descriptions are from Text::CSV_XS (0.23 - 0.29)'s pod
     documentation.
 
     version()
@@ -73,6 +74,49 @@ METHODS
         sep_char
                 The char used for separating fields, by default a comme.
                 (",")
+
+        allow_whitespace
+                When this option is set to true, whitespace (TAB's and
+                SPACE's) surrounding the separation character is removed
+                when parsing. So lines like:
+
+                  1 , "foo" , bar , 3 , zapp
+
+                are now correctly parsed, even though it violates the CSV
+                specs. Note that all whitespace is stripped from start and
+                end of each field. That would make is more a *feature* than
+                a way to be able to parse bad CSV lines, as
+
+                 1,   2.0,  3,   ape  , monkey
+
+                will now be parsed as
+
+                 ("1", "2.0", "3", "ape", "monkey")
+
+                even if the original line was perfectly sane CSV.
+
+        allow_loose_quotes
+                By default, parsing fields that have "quote_char" characters
+                inside an unquoted field, like
+
+                 1,foo "bar" baz,42
+
+                would result in a parse error. Though it is still bad
+                practice to allow this format, we cannot help there are some
+                vendors that make their applications spit out lines styled
+                like this.
+
+        allow_loose_escapes
+                By default, parsing fields that have "escapee_char"
+                characters that escape characters that do not need to be
+                escaped, like:
+
+                 my $csv = Text::CSV_PP->new ({ esc_char => "\\" });
+                 $csv->parse (qq{1,"my bar\'s",baz,42});
+
+                would result in a parse error. Though it is still bad
+                practice to allow this format, this option enables you to
+                treat all escape character sequences equal.
 
         binary  If this attribute is TRUE, you may use binary characters in
                 quoted fields, including line feeds, carriage returns and
@@ -175,6 +219,14 @@ METHODS
         The *$csv->string()*, *$csv->fields()* and *$csv->status()* methods
         are meaningless, again.
 
+    eof
+         $eof = $csv->eof ();
+
+        If "parse ()" or "getline ()" was used with an IO stream, this
+        mothod will return true (1) if the last call hit end of file,
+        otherwise it will return false (''). This is useful to see the
+        difference between a failure and end of file.
+
     types
          $csv->types(\@tref);
 
@@ -257,21 +309,37 @@ METHODS
 
 SPEED
     Of course Text::CSV_PP is much more slow than CSV_XS. Here is a
-    benchmark test in Text-CSV_XS-0.26.
+    benchmark test using an example code in Text-CSV_XS-0.29.
 
-     Text::CSV_PP (1.02)
-     Testing row creation speed ...
-     100000 rows created in  5.88 cpu+sys seconds (   17021 per sec)
+     Text::CSV_PP (1.05)
+     Benchmark: running combine   1, combine  10, combine 100, parse     1, parse
+     10, parse   100 for at least 3 CPU seconds...
+     combine   1:  4 wallclock secs ( 3.23 usr +  0.00 sys =  3.23 CPU) @ 12279.22/s (n=39711)
+     combine  10:  3 wallclock secs ( 3.16 usr +  0.00 sys =  3.16 CPU) @ 1876.74/s (n=5923)
+     combine 100:  3 wallclock secs ( 3.19 usr +  0.00 sys =  3.19 CPU) @ 192.60/s (n=614)
+     parse     1:  3 wallclock secs ( 3.25 usr +  0.00 sys =  3.25 CPU) @ 7623.69/s (n=24777)
+     parse    10:  3 wallclock secs ( 3.25 usr +  0.00 sys =  3.25 CPU) @ 1334.46/s (n=4337)
+     parse   100:  3 wallclock secs ( 3.22 usr +  0.02 sys =  3.24 CPU) @ 132.92/s (n=430)
+     Benchmark: timing 50000 iterations of print    io...
+     print    io: 32 wallclock secs (30.31 usr +  0.72 sys = 31.03 CPU) @ 1611.24/s (n=50000)
+     Benchmark: timing 50000 iterations of getline  io...
+     getline  io: 47 wallclock secs (47.33 usr +  0.28 sys = 47.61 CPU) @ 1050.22/s (n=50000)
+     File was 46050000 bytes long, line length 920
 
-     Testing row parsing speed ...
-     100000 rows parsed  in  8.17 cpu+sys seconds (   12236 per sec)
-
-     Text::CSV_XS (0.26)
-     Testing row creation speed ...
-     100000 rows created in  1.69 cpu+sys seconds (   59241 per sec)
-
-     Testing row parsing speed ...
-     100000 rows parsed  in  2.61 cpu+sys seconds (   38328 per sec)
+     Text::CSV_XS (0.29)
+     Benchmark: running combine   1, combine  10, combine 100, parse     1, parse
+     10, parse   100 for at least 3 CPU seconds...
+     combine   1:  3 wallclock secs ( 3.09 usr +  0.00 sys =  3.09 CPU) @ 59718.49/s (n=184769)
+     combine  10:  3 wallclock secs ( 3.09 usr +  0.00 sys =  3.09 CPU) @ 26825.09/s (n=82970)
+     combine 100:  4 wallclock secs ( 3.16 usr +  0.00 sys =  3.16 CPU) @ 3741.53/s (n=11812)
+     parse     1:  3 wallclock secs ( 3.20 usr +  0.00 sys =  3.20 CPU) @ 27434.59/s (n=87873)
+     parse    10:  3 wallclock secs ( 3.23 usr +  0.00 sys =  3.23 CPU) @ 4576.38/s (n=14800)
+     parse   100:  3 wallclock secs ( 3.19 usr +  0.00 sys =  3.19 CPU) @ 483.53/s (n=1541)
+     Benchmark: timing 50000 iterations of print    io...
+     print    io:  3 wallclock secs ( 2.11 usr +  0.39 sys =  2.50 CPU) @ 20008.00/s (n=50000)
+     Benchmark: timing 50000 iterations of getline  io...
+     getline  io: 12 wallclock secs (11.44 usr +  0.19 sys = 11.63 CPU) @ 4300.71/s ( n=50000)
+     File was 46050000 bytes long, line length 920
 
 CAVEATS
     Below description is entirely from Text::CSV_XS's pod documentation.

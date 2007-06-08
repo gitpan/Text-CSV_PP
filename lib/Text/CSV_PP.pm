@@ -11,7 +11,7 @@ use strict;
 use vars qw($VERSION);
 use Carp ();
 
-$VERSION = '1.02';
+$VERSION = '1.05';
 
 sub PV () { 0 }
 sub IV () { 1 }
@@ -31,27 +31,39 @@ sub version {
 # new
 #  See Text::CSV_XS
 ################################################################################
+
+my %def_attr = (
+    quote_char          => '"',
+    escape_char         => '"',
+    sep_char            => ',',
+    eol                 => '',
+    always_quote        => 0,
+    binary              => 0,
+    keep_meta_info      => 0,
+    allow_loose_quotes  => 0,
+    allow_loose_escapes => 0,
+    allow_whitespace    => 0,
+    types               => undef,
+
+    _EOF                => 0,
+    _STATUS             => undef,
+    _FIELDS             => undef,
+    _FFLAGS             => undef,
+    _STRING             => undef,
+    _ERROR_INPUT        => undef,
+);
+
+
 sub new {
     my $proto = shift;
     my $attr  = shift || {};
-    my $class = ref($proto) || $proto;
-    my $self  = {
-        quote_char      => '"',
-        escape_char     => '"',
-        sep_char        => ',',
-        eol             => '' ,
-        always_quote    => 0,
-        binary          => 0,
-        keep_meta_info  => 0,
-        %$attr,
-    };
+    my $class = ref($proto) || $proto or return;
+    my $self  = { %def_attr };
 
-    $self->{_STATUS} = undef;
-    $self->{_STRING} = undef;
-    $self->{_FIELDS} = undef;
-    $self->{_ERROR_INPUT} = undef;
-
-    $self->{_META_INFO} = undef;
+    for my $prop (keys %$attr) { # if invalid attr, return undef
+        return unless ($prop =~ /^[a-z]/ && exists $def_attr{$prop});
+        $self->{$prop} = $attr->{$prop};
+    }
 
     bless $self, $class;
 
@@ -95,18 +107,9 @@ sub fields {
 ################################################################################
 sub combine {
     my ($self, @part) = @_;
-    my $io;
 
     # at least one argument was given for "combining"...
     return $self->{_STATUS} = 0 unless(@part);
-
-    if(UNIVERSAL::can($part[0],'print')){ # IO like object
-        if(ref($part[1]) ne 'ARRAY'){
-            Carp::croak("fields is not an array ref");
-        }
-        $io   = shift @part;
-        @part = @{ shift @part };
-    }
 
     $self->{_FIELDS}      = \@part;
     $self->{_ERROR_INPUT} = undef;
@@ -155,11 +158,7 @@ sub combine {
         }
     }
 
-    if($io){
-        return $io->print(join($sep,@part) . $self->{eol});
-    }
-
-    $self->{_STRING} = join($sep,@part) . $self->{eol};
+    $self->{_STRING} = join($sep, @part) . $self->{eol};
     $self->{_STATUS} = 1;
 
     return $self->{_STATUS};
@@ -170,27 +169,30 @@ sub combine {
 ################################################################################
 sub parse {
     my ($self, $line) = @_;
-
+    #utf8::encode($line) if (utf8::is_utf8($line)); # TODO?
     @{$self}{qw/_STRING _FIELDS _STATUS _ERROR_INPUT/} = ($line, undef, 0, $line);
 
     return 0 if(!defined $line);
 
-    my ($binary, $quot, $sep, $esc, $types, $keep_meta_info)
-         = @{$self}{qw/binary quote_char sep_char escape_char types keep_meta_info/};
+    my ($binary, $quot, $sep, $esc, $types, $keep_meta_info, $allow_whitespace)
+         = @{$self}{qw/binary quote_char sep_char escape_char types keep_meta_info allow_whitespace/};
 
     return if ($sep eq $esc or $sep eq $quot);
 
-    my $meta_flag = [] if ($keep_meta_info);
-
-    $line =~ s/(?:\x0D\x0A|[\x0D\x0A])?$/$sep/;
-
-    my $re_split = $self->{_re_split}->{$quot}->{$esc}->{$sep}
-       ||= qr/(\Q$quot\E[^\Q$quot$esc\E]*(?:\Q$esc\E[\Q$quot$esc\E0][^\Q$quot$esc\E]*)*\Q$quot\E|[^\Q$sep\E]*)\Q$sep\E/s;
+    my $meta_flag      = $keep_meta_info ? [] : undef;
+    my $re_split       = $self->{_re_split}->{$quot}->{$esc}->{$sep} ||= _make_regexp_split_column($esc, $quot, $sep);
     my $re_quoted       = $self->{_re_quoted}->{$quot}               ||= qr/^\Q$quot\E(.*)\Q$quot\E$/s;
     my $re_in_quot_esp1 = $self->{_re_in_quot_esp1}->{$esc}          ||= qr/\Q$esc\E(.)/;
     my $re_in_quot_esp2 = $self->{_re_in_quot_esp2}->{$quot}->{$esc} ||= qr/[\Q$quot$esc\E]/;
     my $re_quot_char    = $self->{_re_quot_char}->{$quot}            ||= qr/\Q$quot\E/;
     my $re_esc          = $self->{_re_esc}->{$quot}->{$esc}          ||= qr/\Q$esc\E(\Q$quot\E|\Q$esc\E|0)/;
+    my $re_invalid_quot = $self->{_re_invalid_quot}->{$quot}->{$esc} ||= qr/^$re_quot_char|[^\Q$re_esc\E]$re_quot_char/;
+    my $re_rs           = $self->{_re_rs}->{$/} ||= qr{$/?$}; # $/ .. input record separator
+
+    if ($allow_whitespace) {
+        $re_split = $self->{_re_split_allow_sp}->{$quot}->{$esc}->{$sep}
+                     ||= _make_regexp_split_column_allow_sp($esc, $quot, $sep);
+    }
 
     my $palatable = 1;
     my @part      = ();
@@ -198,9 +200,11 @@ sub parse {
     my $i = 0;
     my $flag;
 
-    for my $col ($line =~ /$re_split/g){
+    $line =~ s/$re_rs/$sep/; # $line =~ s/(?:\x0D\x0A|[\x0D\x0A])?$/$sep/;
 
-        if(!$binary and $col =~ /[^\x09\x20-\x7E]/){
+    for my $col ($line =~ /$re_split/g) {
+
+        if (!$binary and $col =~ /[^\x09\x20-\x7E]/) {
             $palatable = 0;
             last;
         }
@@ -210,57 +214,100 @@ sub parse {
             $flag |= IS_BINARY if ($col =~ /[^\x09\x20-\x7E]/);
         }
 
-        if($col =~ $re_quoted){
+        if ($col =~ $re_quoted) {
             $flag |= IS_QUOTED if ($keep_meta_info);
             $col = $1;
-            if(!$binary and $col =~ $re_in_quot_esp1){
+            if (!$binary and $col =~ $re_in_quot_esp1) {
                 my $str = $1;
-                if($str !~ $re_in_quot_esp2){
-                    $palatable = 0;
-                    last;
+                if ($str !~ $re_in_quot_esp2) {
+                    unless ($self->{allow_loose_escapes}) {
+                        $palatable = 0;
+                        last;
+                    }
+                    else {
+                        $col =~ s/\Q$esc\E(.)/$1/g;
+                    }
                 }
             }
 
             $col =~ s{$re_esc}{$1 eq '0' ? "\0" : $1}eg;
 
-            if($types and $types->[$i]){ # IV or NV
+            if ($types and $types->[$i]) { # IV or NV
                 _check_type(\$col);
             }
         }
-        elsif(!$binary and $col =~ $re_quot_char){
-            $palatable = 0;
-            last;
+        elsif (!$binary and $col =~ $re_invalid_quot) {
+            unless ($self->{allow_loose_quotes} and $col =~ /$re_quot_char/) {
+                $palatable = 0;
+                last;
+            }
         }
-        elsif($types and $types->[$i]){ # IV or NV
+        elsif ($types and $types->[$i]) { # IV or NV
             _check_type(\$col);
         }
-        push @part,$col;
 
+        push @part,$col;
         push @{$meta_flag}, $flag if ($keep_meta_info);
 
         $i++;
     }
 
-    if($palatable and ! @part){
+    if ($palatable and ! @part) {
         $palatable = 0;
     }
 
-    if($palatable){
+    if ($palatable) {
         $self->{_ERROR_INPUT} = undef;
         $self->{_FIELDS}      = \@part;
     }
 
-    $self->{_META_INFO} = $keep_meta_info ? $meta_flag : [];
+    $self->{_FFLAGS} = $keep_meta_info ? $meta_flag : [];
 
     return $self->{_STATUS} = $palatable;
+}
+
+
+sub _make_regexp_split_column {
+    my ($esc, $quot, $sep) = @_;
+    qr/(
+        \Q$quot\E
+            [^\Q$quot$esc\E]*(?:\Q$esc\E[\Q$quot$esc\E0][^\Q$quot$esc\E]*)*
+        \Q$quot\E
+        | # or
+        [^\Q$sep\E]*
+       )
+       \Q$sep\E
+    /xs;
+}
+
+
+sub _make_regexp_split_column_allow_sp {
+    my ($esc, $quot, $sep) = @_;
+    qr/[\x20\x09]*
+       (
+        \Q$quot\E
+            [^\Q$quot$esc\E]*(?:\Q$esc\E[\Q$quot$esc\E0][^\Q$quot$esc\E]*)*
+        \Q$quot\E
+        | # or
+        [^\Q$sep\E]*?
+       )
+       [\x20\x09]*\Q$sep\E[\x20\x09]*
+    /xs;
 }
 ################################################################################
 # print
 #  See Text::CSV_XS
 ################################################################################
 sub print {
-    my ($self,$io,$cols) = @_;
-    $self->combine($io,$cols);
+    my ($self, $io, $cols) = @_;
+
+    if(ref($cols) ne 'ARRAY'){
+        Carp::croak("Expected fields to be an array ref");
+    }
+
+    $self->combine(@$cols) or return '';
+
+    print $io $self->string;
 }
 ################################################################################
 # getline
@@ -268,8 +315,22 @@ sub print {
 ################################################################################
 sub getline {
     my ($self,$io) = @_;
-    $self->parse($io->getline()) or return;
+
+    $self->{_EOF} = eof($io) ? 1 : '';
+
+    my $line  = $io->getline();
+
+    $line .= $io->getline() while ( defined $line and $line =~ tr/"// % 2 and !eof($io) );
+
+    $self->parse($line) or return;
+
     [ $self->fields() ];
+}
+################################################################################
+# eof
+################################################################################
+sub eof {
+    $_[0]->{_EOF};
 }
 ################################################################################
 # type
@@ -311,24 +372,25 @@ sub _check_type {
 ################################################################################
 
 sub meta_info {
-    $_[0]->{_META_INFO} ? @{ $_[0]->{_META_INFO} } : undef;
+    $_[0]->{_FFLAGS} ? @{ $_[0]->{_FFLAGS} } : undef;
 }
 
 sub is_quoted {
-    return unless (defined $_[0]->{_META_INFO});
-    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_META_INFO} } );
+    return unless (defined $_[0]->{_FFLAGS});
+    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_FFLAGS} } );
 
-    $_[0]->{_META_INFO}->[$_[1]] & IS_QUOTED ? 1 : 0;
+    $_[0]->{_FFLAGS}->[$_[1]] & IS_QUOTED ? 1 : 0;
 }
 
 sub is_binary {
-    return unless (defined $_[0]->{_META_INFO});
-    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_META_INFO} } );
-    $_[0]->{_META_INFO}->[$_[1]] & IS_BINARY ? 1 : 0;
+    return unless (defined $_[0]->{_FFLAGS});
+    return if( $_[1] =~ /\D/ or $_[1] < 0 or  $_[1] > $#{ $_[0]->{_FFLAGS} } );
+    $_[0]->{_FFLAGS}->[$_[1]] & IS_BINARY ? 1 : 0;
 }
 
 BEGIN {
-    for my $method (qw/quote_char escape_char sep_char eol always_quote binary keep_meta_info/) {
+    for my $method (qw/quote_char escape_char sep_char eol always_quote binary allow_whitespace
+                        keep_meta_info allow_loose_quotes allow_loose_escapes /) {
         eval qq|
             sub $method {
                 \$_[0]->{$method} = \$_[1] if (defined \$_[1]);
@@ -382,7 +444,7 @@ is a XS module and Text::CSV_PP is a Puer Perl one.
 
 =head1 METHODS
 
-Almost descriptions are from Text::CSV_XS (0.23, 0.26)'s pod documentation.
+Almost descriptions are from Text::CSV_XS (0.23 - 0.29)'s pod documentation.
 
 =over 4
 
@@ -418,6 +480,50 @@ by default the same character. (C<">)
 =item sep_char
 
 The char used for separating fields, by default a comme. (C<,>)
+
+=item allow_whitespace
+
+When this option is set to true, whitespace (TAB's and SPACE's)
+surrounding the separation character is removed when parsing. So
+lines like:
+
+  1 , "foo" , bar , 3 , zapp
+
+are now correctly parsed, even though it violates the CSV specs.
+Note that B<all> whitespace is stripped from start and end of each
+field. That would make is more a I<feature> than a way to be able
+to parse bad CSV lines, as
+
+ 1,   2.0,  3,   ape  , monkey
+
+will now be parsed as
+
+ ("1", "2.0", "3", "ape", "monkey")
+
+even if the original line was perfectly sane CSV.
+
+=item allow_loose_quotes
+
+By default, parsing fields that have C<quote_char> characters inside
+an unquoted field, like
+
+ 1,foo "bar" baz,42
+
+would result in a parse error. Though it is still bad practice to
+allow this format, we cannot help there are some vendors that make
+their applications spit out lines styled like this.
+
+=item allow_loose_escapes
+
+By default, parsing fields that have C<escapee_char> characters that
+escape characters that do not need to be escaped, like:
+
+ my $csv = Text::CSV_PP->new ({ esc_char => "\\" });
+ $csv->parse (qq{1,"my bar\'s",baz,42});
+
+would result in a parse error. Though it is still bad practice to
+allow this format, this option enables you to treat all escape character
+sequences equal.
 
 =item binary
 
@@ -519,7 +625,6 @@ to retrieve the invalid argument.
 You may use the I<types()> method for setting column types. See the
 description below.
 
-
 =item getline
 
  $columns = $csv->getline($io);
@@ -531,6 +636,15 @@ by the function or undef for failure.
 
 The I<$csv-E<gt>string()>, I<$csv-E<gt>fields()> and I<$csv-E<gt>status()>
 methods are meaningless, again.
+
+=item eof
+
+ $eof = $csv->eof ();
+
+If C<parse ()> or C<getline ()> was used with an IO stream, this
+mothod will return true (1) if the last call hit end of file, otherwise
+it will return false (''). This is useful to see the difference between
+a failure and end of file.
 
 =item types
 
@@ -629,21 +743,38 @@ C<combine()> or C<parse()>, whichever was called more recently.
 =head1 SPEED
 
 Of course Text::CSV_PP is much more slow than CSV_XS.
-Here is a benchmark test in Text-CSV_XS-0.26.
+Here is a benchmark test using an example code in Text-CSV_XS-0.29.
 
- Text::CSV_PP (1.02)
- Testing row creation speed ...
- 100000 rows created in  5.88 cpu+sys seconds (   17021 per sec)
+ Text::CSV_PP (1.05)
+ Benchmark: running combine   1, combine  10, combine 100, parse     1, parse
+ 10, parse   100 for at least 3 CPU seconds...
+ combine   1:  4 wallclock secs ( 3.23 usr +  0.00 sys =  3.23 CPU) @ 12279.22/s (n=39711)
+ combine  10:  3 wallclock secs ( 3.16 usr +  0.00 sys =  3.16 CPU) @ 1876.74/s (n=5923)
+ combine 100:  3 wallclock secs ( 3.19 usr +  0.00 sys =  3.19 CPU) @ 192.60/s (n=614)
+ parse     1:  3 wallclock secs ( 3.25 usr +  0.00 sys =  3.25 CPU) @ 7623.69/s (n=24777)
+ parse    10:  3 wallclock secs ( 3.25 usr +  0.00 sys =  3.25 CPU) @ 1334.46/s (n=4337)
+ parse   100:  3 wallclock secs ( 3.22 usr +  0.02 sys =  3.24 CPU) @ 132.92/s (n=430)
+ Benchmark: timing 50000 iterations of print    io...
+ print    io: 32 wallclock secs (30.31 usr +  0.72 sys = 31.03 CPU) @ 1611.24/s (n=50000)
+ Benchmark: timing 50000 iterations of getline  io...
+ getline  io: 47 wallclock secs (47.33 usr +  0.28 sys = 47.61 CPU) @ 1050.22/s (n=50000)
+ File was 46050000 bytes long, line length 920
 
- Testing row parsing speed ...
- 100000 rows parsed  in  8.17 cpu+sys seconds (   12236 per sec)
 
- Text::CSV_XS (0.26)
- Testing row creation speed ...
- 100000 rows created in  1.69 cpu+sys seconds (   59241 per sec)
-
- Testing row parsing speed ...
- 100000 rows parsed  in  2.61 cpu+sys seconds (   38328 per sec)
+ Text::CSV_XS (0.29)
+ Benchmark: running combine   1, combine  10, combine 100, parse     1, parse
+ 10, parse   100 for at least 3 CPU seconds...
+ combine   1:  3 wallclock secs ( 3.09 usr +  0.00 sys =  3.09 CPU) @ 59718.49/s (n=184769)
+ combine  10:  3 wallclock secs ( 3.09 usr +  0.00 sys =  3.09 CPU) @ 26825.09/s (n=82970)
+ combine 100:  4 wallclock secs ( 3.16 usr +  0.00 sys =  3.16 CPU) @ 3741.53/s (n=11812)
+ parse     1:  3 wallclock secs ( 3.20 usr +  0.00 sys =  3.20 CPU) @ 27434.59/s (n=87873)
+ parse    10:  3 wallclock secs ( 3.23 usr +  0.00 sys =  3.23 CPU) @ 4576.38/s (n=14800)
+ parse   100:  3 wallclock secs ( 3.19 usr +  0.00 sys =  3.19 CPU) @ 483.53/s (n=1541)
+ Benchmark: timing 50000 iterations of print    io...
+ print    io:  3 wallclock secs ( 2.11 usr +  0.39 sys =  2.50 CPU) @ 20008.00/s (n=50000)
+ Benchmark: timing 50000 iterations of getline  io...
+ getline  io: 12 wallclock secs (11.44 usr +  0.19 sys = 11.63 CPU) @ 4300.71/s ( n=50000)
+ File was 46050000 bytes long, line length 920
 
 
 =head1 CAVEATS
