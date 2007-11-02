@@ -1,5 +1,10 @@
 Revision history for Perl extension Text::CSV_PP.
 
+1.06  Thu Nov  1 18:18:02 2007
+	- modified Text::CSV_PP::NV (Text::CSV_XS compatible)
+	- added Text::CSV_XS compatible methods
+	    error_diag()  - different from XS version
+	- added test files (copied and modified from Text::CSV_XS v0.32)
 
 1.05  Fri Jun  8 13:47:29 2007
 	- added Text::CSV_XS compatible methods

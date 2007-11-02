@@ -1,7 +1,8 @@
-
-# copied from Text::CSV_XS (0.26) t/60_samples.t and modified for Text::CSV_PP
+#!/usr/bin/perl
 
 use strict;
+$^W = 1;
+
 use Test::More tests => 8;
 
 BEGIN {
